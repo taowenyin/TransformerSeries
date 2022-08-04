@@ -7,15 +7,15 @@ import sys
 import time
 import math
 import numpy as np
-
 import torch
 import torch.optim as optim
 import torch.backends.cudnn as cudnn
 import platform
-
-from data import *
 import tools
+import torch.nn.functional as F
 
+from torch.utils.data import DataLoader
+from data import *
 from utils.augmentations import SSDAugmentation
 from utils.cocoapi_evaluator import COCOAPIEvaluator
 from utils.vocapi_evaluator import VOCAPIEvaluator
@@ -28,10 +28,10 @@ def parse_args():
     parser.add_argument('-d', '--dataset', default='voc',
                         help='voc or coco')
     parser.add_argument('-ms', '--multi_scale', action='store_true', default=False,
-                        help='use multi-scale trick')                  
-    parser.add_argument('--batch_size', default=32, type=int, 
+                        help='use multi-scale trick')
+    parser.add_argument('--batch_size', default=32, type=int,
                         help='Batch size for training')
-    parser.add_argument('--lr', default=1e-3, type=float, 
+    parser.add_argument('--lr', default=1e-3, type=float,
                         help='initial learning rate')
     parser.add_argument('-no_wp', '--no_warm_up', action='store_true', default=False,
                         help='yes or no to choose using warmup strategy to train')
@@ -39,25 +39,25 @@ def parse_args():
                         help='The upper bound of warm-up')
     parser.add_argument('--start_epoch', type=int, default=0,
                         help='start epoch to train')
-    parser.add_argument('-r', '--resume', default=None, type=str, 
+    parser.add_argument('-r', '--resume', default=None, type=str,
                         help='keep training')
-    parser.add_argument('--momentum', default=0.9, type=float, 
+    parser.add_argument('--momentum', default=0.9, type=float,
                         help='Momentum value for optim')
-    parser.add_argument('--weight_decay', default=5e-4, type=float, 
+    parser.add_argument('--weight_decay', default=5e-4, type=float,
                         help='Weight decay for SGD')
-    parser.add_argument('--gamma', default=0.1, type=float, 
+    parser.add_argument('--gamma', default=0.1, type=float,
                         help='Gamma update for SGD')
-    parser.add_argument('--num_workers', default=8, type=int, 
+    parser.add_argument('--num_workers', default=8, type=int,
                         help='Number of workers used in dataloading')
     parser.add_argument('--eval_epoch', type=int,
-                            default=10, help='interval between evaluations')
+                        default=10, help='interval between evaluations')
     parser.add_argument('--cuda', action='store_true', default=False,
                         help='use cuda.')
     parser.add_argument('--tfboard', action='store_true', default=False,
                         help='use tensorboard')
     parser.add_argument('--debug', action='store_true', default=False,
                         help='debug mode where only one image is trained')
-    parser.add_argument('--save_folder', default='weights/', type=str, 
+    parser.add_argument('--save_folder', default='weights/', type=str,
                         help='Gamma update for SGD')
 
     return parser.parse_args()
@@ -70,7 +70,7 @@ def train():
 
     path_to_save = os.path.join(args.save_folder, args.dataset, args.version)
     os.makedirs(path_to_save, exist_ok=True)
-    
+
     # 是否使用cuda
     if args.cuda:
         print('use cuda')
@@ -98,52 +98,47 @@ def train():
         # 加载voc数据集
         data_dir = VOC_ROOT
         num_classes = 20
-        dataset = VOCDetection(root=data_dir, 
-                                transform=SSDAugmentation(train_size)
-                                )
+        dataset = VOCDetection(root=data_dir, transform=SSDAugmentation(train_size))
 
         evaluator = VOCAPIEvaluator(data_root=data_dir,
                                     img_size=val_size,
                                     device=device,
                                     transform=BaseTransform(val_size),
-                                    labelmap=VOC_CLASSES
-                                    )
+                                    labelmap=VOC_CLASSES)
 
     elif args.dataset == 'coco':
         # 加载COCO数据集
         data_dir = coco_root
         num_classes = 80
         dataset = COCODataset(
-                    data_dir=data_dir,
-                    img_size=train_size,
-                    transform=SSDAugmentation(train_size),
-                    debug=args.debug
-                    )
+            data_dir=data_dir,
+            img_size=train_size,
+            transform=SSDAugmentation(train_size),
+            debug=args.debug
+        )
 
         evaluator = COCOAPIEvaluator(
-                        data_dir=data_dir,
-                        img_size=val_size,
-                        device=device,
-                        transform=BaseTransform(val_size)
-                        )
-    
+            data_dir=data_dir,
+            img_size=val_size,
+            device=device,
+            transform=BaseTransform(val_size)
+        )
+
     else:
+        dataset = None
+        evaluator = None
+        num_classes = 0
         print('unknow dataset !! Only support voc and coco !!')
         exit(0)
-    
+
     print('Training model on:', dataset.name)
     print('The dataset size:', len(dataset))
     print("----------------------------------------------------------")
 
     # dataloader类
-    dataloader = torch.utils.data.DataLoader(
-                    dataset, 
-                    batch_size=args.batch_size, 
-                    shuffle=True, 
-                    collate_fn=detection_collate,
-                    num_workers=args.num_workers,
-                    pin_memory=True
-                    )
+    dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True,
+                            collate_fn=detection_collate, num_workers=args.num_workers,
+                            pin_memory=True)
 
     # 构建我们的模型
     if args.version == 'yolo':
@@ -152,6 +147,7 @@ def train():
         print('Let us train yolo on the %s dataset ......' % (args.dataset))
 
     else:
+        yolo_net = None
         print('We only support YOLO !!!')
         exit()
 
@@ -162,12 +158,14 @@ def train():
     if args.tfboard:
         print('use tensorboard')
         from torch.utils.tensorboard import SummaryWriter
-        c_time = time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(time.time()))
+        c_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))
         log_path = os.path.join('log/coco/', args.version, c_time)
         os.makedirs(log_path, exist_ok=True)
 
         writer = SummaryWriter(log_path)
-    
+    else:
+        writer = None
+
     # keep training
     if args.resume is not None:
         print('keep training model: %s' % (args.resume))
@@ -176,13 +174,13 @@ def train():
     # 构建训练优化器
     base_lr = args.lr
     tmp_lr = base_lr
-    optimizer = optim.SGD(model.parameters(), 
-                            lr=args.lr, 
-                            momentum=args.momentum,
-                            weight_decay=args.weight_decay
-                            )
+    optimizer = optim.SGD(model.parameters(),
+                          lr=args.lr,
+                          momentum=args.momentum,
+                          weight_decay=args.weight_decay
+                          )
 
-    max_epoch = cfg['max_epoch']                  # 最大训练轮次
+    max_epoch = cfg['max_epoch']  # 最大训练轮次
     epoch_size = len(dataset) // args.batch_size  # 每一训练轮次的迭代次数
 
     # 开始训练
@@ -193,17 +191,17 @@ def train():
         if epoch in cfg['lr_epoch']:
             tmp_lr = tmp_lr * 0.1
             set_lr(optimizer, tmp_lr)
-    
+
         for iter_i, (images, targets) in enumerate(dataloader):
             # 使用warm-up策略来调整早期的学习率
             if not args.no_warm_up:
                 if epoch < args.wp_epoch:
-                    tmp_lr = base_lr * pow((iter_i+epoch*epoch_size)*1. / (args.wp_epoch*epoch_size), 4)
+                    tmp_lr = base_lr * pow((iter_i + epoch * epoch_size) * 1. / (args.wp_epoch * epoch_size), 4)
                     set_lr(optimizer, tmp_lr)
 
                 elif epoch == args.wp_epoch and iter_i == 0:
                     tmp_lr = base_lr
-                    set_lr(optimizer, tmp_lr) 
+                    set_lr(optimizer, tmp_lr)
 
             # 多尺度训练
             if iter_i % 10 == 0 and iter_i > 0 and args.multi_scale:
@@ -212,24 +210,24 @@ def train():
                 model.set_grid(train_size)
             if args.multi_scale:
                 # 插值
-                images = torch.nn.functional.interpolate(images, size=train_size, mode='bilinear', align_corners=False)
-            
+                images = F.interpolate(images, size=train_size,
+                                       mode='bilinear', align_corners=False)
+
             # 制作训练标签
             targets = [label.tolist() for label in targets]
-            targets = tools.gt_creator(input_size=train_size, 
-                                       stride=yolo_net.stride, 
-                                       label_lists=targets
-                                       )
-            
+            targets = tools.gt_creator(input_size=train_size,
+                                       stride=yolo_net.stride,
+                                       label_lists=targets)
+
             # to device
-            images = images.to(device)          
+            images = images.to(device)
             targets = targets.to(device)
-            
+
             # 前向推理和计算损失
             conf_loss, cls_loss, bbox_loss, total_loss = model(images, target=targets)
 
             # 反向传播
-            total_loss.backward()        
+            total_loss.backward()
             optimizer.step()
             optimizer.zero_grad()
 
@@ -239,18 +237,18 @@ def train():
                     writer.add_scalar('obj loss', conf_loss.item(), iter_i + epoch * epoch_size)
                     writer.add_scalar('cls loss', cls_loss.item(), iter_i + epoch * epoch_size)
                     writer.add_scalar('box loss', bbox_loss.item(), iter_i + epoch * epoch_size)
-                
+
                 t1 = time.time()
                 print('[Epoch %d/%d][Iter %d/%d][lr %.6f]'
-                    '[Loss: obj %.2f || cls %.2f || bbox %.2f || total %.2f || size %d || time: %.2f]'
-                        % (epoch+1, max_epoch, iter_i, epoch_size, tmp_lr,
-                            conf_loss.item(), 
-                            cls_loss.item(), 
-                            bbox_loss.item(), 
-                            total_loss.item(), 
-                            train_size, 
-                            t1-t0),
-                        flush=True)
+                      '[Loss: obj %.2f || cls %.2f || bbox %.2f || total %.2f || size %d || time: %.2f]'
+                      % (epoch + 1, max_epoch, iter_i, epoch_size, tmp_lr,
+                         conf_loss.item(),
+                         cls_loss.item(),
+                         bbox_loss.item(),
+                         total_loss.item(),
+                         train_size,
+                         t1 - t0),
+                      flush=True)
 
                 t0 = time.time()
 
@@ -271,9 +269,8 @@ def train():
         # save model
         if (epoch + 1) % 10 == 0:
             print('Saving state, epoch:', epoch + 1)
-            torch.save(model.state_dict(), os.path.join(path_to_save, 
-                        args.version + '_' + repr(epoch + 1) + '.pth')
-                        )  
+            torch.save(model.state_dict(),
+                       os.path.join(path_to_save, args.version + '_' + repr(epoch + 1) + '.pth'))
 
 
 def set_lr(optimizer, lr):
