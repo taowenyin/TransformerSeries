@@ -12,11 +12,11 @@ class MSEWithLogitsLoss(nn.Module):
     def forward(self, logits, targets):
         inputs = torch.clamp(torch.sigmoid(logits), min=1e-4, max=1.0 - 1e-4)
 
-        pos_id = (targets==1.0).float()
-        neg_id = (targets==0.0).float()
-        pos_loss = pos_id * (inputs - targets)**2
-        neg_loss = neg_id * (inputs)**2
-        loss = 5.0*pos_loss + 1.0*neg_loss
+        pos_id = (targets == 1.0).float()
+        neg_id = (targets == 0.0).float()
+        pos_loss = pos_id * (inputs - targets) ** 2
+        neg_loss = neg_id * (inputs) ** 2
+        loss = 5.0 * pos_loss + 1.0 * neg_loss
 
         if self.reduction == 'mean':
             batch_size = logits.size(0)
@@ -38,9 +38,9 @@ def generate_dxdywh(gt_label, w, h, s):
 
     if box_w < 1e-4 or box_h < 1e-4:
         # print('Not a valid data !!!')
-        return False    
+        return False
 
-    # 计算中心点所在的网格坐标
+        # 计算中心点所在的网格坐标
     c_x_s = c_x / s
     c_y_s = c_y / s
     grid_x = int(c_x_s)
@@ -64,7 +64,7 @@ def gt_creator(input_size, stride, label_lists=[]):
     ws = w // stride
     hs = h // stride
     s = stride
-    gt_tensor = np.zeros([batch_size, hs, ws, 1+1+4+1])
+    gt_tensor = np.zeros([batch_size, hs, ws, 1 + 1 + 4 + 1])
 
     # 制作训练标签
     for batch_index in range(batch_size):
@@ -80,8 +80,7 @@ def gt_creator(input_size, stride, label_lists=[]):
                     gt_tensor[batch_index, grid_y, grid_x, 2:6] = np.array([tx, ty, tw, th])
                     gt_tensor[batch_index, grid_y, grid_x, 6] = weight
 
-
-    gt_tensor = gt_tensor.reshape(batch_size, -1, 1+1+4+1)
+    gt_tensor = gt_tensor.reshape(batch_size, -1, 1 + 1 + 4 + 1)
 
     return torch.from_numpy(gt_tensor).float()
 
@@ -98,7 +97,7 @@ def loss(pred_conf, pred_cls, pred_txtytwth, label):
     pred_cls = pred_cls.permute(0, 2, 1)
     pred_txty = pred_txtytwth[:, :, :2]
     pred_twth = pred_txtytwth[:, :, 2:]
-    
+
     # 标签
     gt_obj = label[:, :, 0]
     gt_cls = label[:, :, 1].long()
@@ -109,13 +108,15 @@ def loss(pred_conf, pred_cls, pred_txtytwth, label):
     batch_size = pred_conf.size(0)
     # 置信度损失
     conf_loss = conf_loss_function(pred_conf, gt_obj)
-    
+
     # 类别损失
     cls_loss = torch.sum(cls_loss_function(pred_cls, gt_cls) * gt_obj) / batch_size
-    
+
     # 边界框的位置损失
-    txty_loss = torch.sum(torch.sum(txty_loss_function(pred_txty, gt_txty), dim=-1) * gt_box_scale_weight * gt_obj) / batch_size
-    twth_loss = torch.sum(torch.sum(twth_loss_function(pred_twth, gt_twth), dim=-1) * gt_box_scale_weight * gt_obj) / batch_size
+    txty_loss = torch.sum(
+        torch.sum(txty_loss_function(pred_txty, gt_txty), dim=-1) * gt_box_scale_weight * gt_obj) / batch_size
+    twth_loss = torch.sum(
+        torch.sum(twth_loss_function(pred_twth, gt_twth), dim=-1) * gt_box_scale_weight * gt_obj) / batch_size
     bbox_loss = txty_loss + twth_loss
 
     # 总的损失

@@ -48,7 +48,7 @@ class YoloV1(nn.Module):
         w, h = input_size, input_size
         # generate grid cells
         ws, hs = w // self.stride, h // self.stride
-        grid_y, grid_x = torch.meshgrid([torch.arange(hs), torch.arange(ws)])
+        grid_y, grid_x = torch.meshgrid([torch.arange(hs), torch.arange(ws)], indexing='ij')
         grid_xy = torch.stack([grid_x, grid_y], dim=-1).float()
         grid_xy = grid_xy.view(1, hs * ws, 2).to(self.device)
 
