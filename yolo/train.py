@@ -3,6 +3,7 @@ from __future__ import division
 import os
 import random
 import argparse
+import sys
 import time
 import math
 import numpy as np
@@ -10,6 +11,7 @@ import numpy as np
 import torch
 import torch.optim as optim
 import torch.backends.cudnn as cudnn
+import platform
 
 from data import *
 import tools
@@ -72,8 +74,11 @@ def train():
     # 是否使用cuda
     if args.cuda:
         print('use cuda')
-        cudnn.benchmark = True
-        device = torch.device("cuda")
+        if platform.system() == 'Darwin':
+            device = torch.device('mps')
+        else:
+            cudnn.benchmark = True
+            device = torch.device("cuda")
     else:
         device = torch.device("cpu")
 

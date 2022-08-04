@@ -12,6 +12,7 @@ import torch.utils.data as data
 import cv2
 import numpy as np
 import random
+import platform
 
 if sys.version_info[0] == 2:
     import xml.etree.cElementTree as ET
@@ -26,8 +27,13 @@ VOC_CLASSES = (  # always index 0
     'sheep', 'sofa', 'train', 'tvmonitor')
 
 
-# VOC数据集的目录，以下是笔者的目录。读者请根据自己的电脑来进行修改
-VOC_ROOT = "/home/taowenyin/MyCode/Dataset/VOC/VOCdevkit/"
+if platform.system() == 'Darwin':
+    # VOC数据集的目录，以下是笔者的目录。读者请根据自己的电脑来进行修改
+    VOC_ROOT = "/Users/taowenyin/Database/VOC/VOCdevkit"
+elif platform.system() == 'Linux':
+    VOC_ROOT = "/home/taowenyin/MyCode/Dataset/VOC/VOCdevkit/"
+else:
+    VOC_ROOT = "/home/taowenyin/MyCode/Dataset/VOC/VOCdevkit/"
 
 
 class VOCAnnotationTransform(object):

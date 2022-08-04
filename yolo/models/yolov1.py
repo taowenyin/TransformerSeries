@@ -2,9 +2,10 @@ import torch
 import torch.nn as nn
 import numpy as np
 
-from ..tools import loss
-from ..utils import Conv, SPP
-from ..backbone import resnet18
+from tools import loss
+from utils import Conv, SPP
+from backbone import resnet18
+
 
 
 class YoloV1(nn.Module):
