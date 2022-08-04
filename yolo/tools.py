@@ -1,72 +1,72 @@
 import numpy as np
+from data import *
 import torch.nn as nn
 import torch.nn.functional as F
 
-from data import *
 
-CLASS_COLOR = [(np.random.randint(255), np.random.randint(255), np.random.randint(255)) for _ in
-               range(len(VOC_CLASSES))]
-
-
-class MSELoss(nn.Module):
+class MSEWithLogitsLoss(nn.Module):
     def __init__(self, reduction='mean'):
-        super(MSELoss, self).__init__()
+        super(MSEWithLogitsLoss, self).__init__()
         self.reduction = reduction
 
-    def forward(self, inputs, targets):
-        pos_id = (targets == 1.0).float()
-        neg_id = (targets == 0.0).float()
-        pos_loss = pos_id * (inputs - targets) ** 2
-        neg_loss = neg_id * (inputs) ** 2
+    def forward(self, logits, targets):
+        inputs = torch.clamp(torch.sigmoid(logits), min=1e-4, max=1.0 - 1e-4)
+
+        pos_id = (targets==1.0).float()
+        neg_id = (targets==0.0).float()
+        pos_loss = pos_id * (inputs - targets)**2
+        neg_loss = neg_id * (inputs)**2
+        loss = 5.0*pos_loss + 1.0*neg_loss
+
         if self.reduction == 'mean':
-            pos_loss = torch.mean(torch.sum(pos_loss, 1))
-            neg_loss = torch.mean(torch.sum(neg_loss, 1))
-            return pos_loss, neg_loss
+            batch_size = logits.size(0)
+            loss = torch.sum(loss) / batch_size
+
+            return loss
+
         else:
-            return pos_loss, neg_loss
+            return loss
 
 
 def generate_dxdywh(gt_label, w, h, s):
     xmin, ymin, xmax, ymax = gt_label[:-1]
-    # compute the center, width and height
+    # 计算边界框的中心点
     c_x = (xmax + xmin) / 2 * w
     c_y = (ymax + ymin) / 2 * h
     box_w = (xmax - xmin) * w
     box_h = (ymax - ymin) * h
 
-    if box_w < 1. or box_h < 1.:
-        # print('A dirty data !!!')
-        return False
+    if box_w < 1e-4 or box_h < 1e-4:
+        # print('Not a valid data !!!')
+        return False    
 
-        # map center point of box to the grid cell
+    # 计算中心点所在的网格坐标
     c_x_s = c_x / s
     c_y_s = c_y / s
     grid_x = int(c_x_s)
     grid_y = int(c_y_s)
-    # compute the (x, y, w, h) for the corresponding grid cell
+    # 计算中心点偏移量和宽高的标签
     tx = c_x_s - grid_x
     ty = c_y_s - grid_y
     tw = np.log(box_w)
     th = np.log(box_h)
+    # 计算边界框位置参数的损失权重
     weight = 2.0 - (box_w / w) * (box_h / h)
 
     return grid_x, grid_y, tx, ty, tw, th, weight
 
 
-def gt_creator(input_size, stride, label_lists=[], name='VOC'):
-    assert len(input_size) > 0 and len(label_lists) > 0
-    # prepare the all empty gt datas
+def gt_creator(input_size, stride, label_lists=[]):
+    # 必要的参数
     batch_size = len(label_lists)
-    w = input_size[1]
-    h = input_size[0]
-
-    # We  make gt labels by anchor-free method and anchor-based method.
+    w = input_size
+    h = input_size
     ws = w // stride
     hs = h // stride
     s = stride
-    gt_tensor = np.zeros([batch_size, hs, ws, 1 + 1 + 4 + 1])
+    gt_tensor = np.zeros([batch_size, hs, ws, 1+1+4+1])
 
-    # generate gt whose style is yolo-v1
+    # 制作训练标签
     for batch_index in range(batch_size):
         for gt_label in label_lists[batch_index]:
             gt_class = int(gt_label[-1])
@@ -80,49 +80,48 @@ def gt_creator(input_size, stride, label_lists=[], name='VOC'):
                     gt_tensor[batch_index, grid_y, grid_x, 2:6] = np.array([tx, ty, tw, th])
                     gt_tensor[batch_index, grid_y, grid_x, 6] = weight
 
-    gt_tensor = gt_tensor.reshape(batch_size, -1, 1 + 1 + 4 + 1)
 
-    return gt_tensor
+    gt_tensor = gt_tensor.reshape(batch_size, -1, 1+1+4+1)
+
+    return torch.from_numpy(gt_tensor).float()
 
 
 def loss(pred_conf, pred_cls, pred_txtytwth, label):
-    obj = 5.0
-    noobj = 1.0
-
-    # create loss_f
-    conf_loss_function = MSELoss(reduction='mean')
+    # 损失函数
+    conf_loss_function = MSEWithLogitsLoss(reduction='mean')
     cls_loss_function = nn.CrossEntropyLoss(reduction='none')
     txty_loss_function = nn.BCEWithLogitsLoss(reduction='none')
     twth_loss_function = nn.MSELoss(reduction='none')
 
-    pred_conf = torch.sigmoid(pred_conf[:, :, 0])
+    # 预测
+    pred_conf = pred_conf[:, :, 0]
     pred_cls = pred_cls.permute(0, 2, 1)
     pred_txty = pred_txtytwth[:, :, :2]
     pred_twth = pred_txtytwth[:, :, 2:]
-
-    gt_obj = label[:, :, 0].float()
+    
+    # 标签
+    gt_obj = label[:, :, 0]
     gt_cls = label[:, :, 1].long()
-    gt_txtytwth = label[:, :, 2:-1].float()
-    gt_box_scale_weight = label[:, :, -1]
+    gt_txty = label[:, :, 2:4]
+    gt_twth = label[:, :, 4:6]
+    gt_box_scale_weight = label[:, :, 6]
 
-    # objectness loss
-    pos_loss, neg_loss = conf_loss_function(pred_conf, gt_obj)
-    conf_loss = obj * pos_loss + noobj * neg_loss
+    batch_size = pred_conf.size(0)
+    # 置信度损失
+    conf_loss = conf_loss_function(pred_conf, gt_obj)
+    
+    # 类别损失
+    cls_loss = torch.sum(cls_loss_function(pred_cls, gt_cls) * gt_obj) / batch_size
+    
+    # 边界框的位置损失
+    txty_loss = torch.sum(torch.sum(txty_loss_function(pred_txty, gt_txty), dim=-1) * gt_box_scale_weight * gt_obj) / batch_size
+    twth_loss = torch.sum(torch.sum(twth_loss_function(pred_twth, gt_twth), dim=-1) * gt_box_scale_weight * gt_obj) / batch_size
+    bbox_loss = txty_loss + twth_loss
 
-    # class loss
-    cls_loss = torch.mean(torch.sum(cls_loss_function(pred_cls, gt_cls) * gt_obj, 1))
+    # 总的损失
+    total_loss = conf_loss + cls_loss + bbox_loss
 
-    # box loss
-    txty_loss = torch.mean(
-        torch.sum(torch.sum(txty_loss_function(pred_txty, gt_txtytwth[:, :, :2]), 2) * gt_box_scale_weight * gt_obj, 1))
-    twth_loss = torch.mean(
-        torch.sum(torch.sum(twth_loss_function(pred_twth, gt_txtytwth[:, :, 2:]), 2) * gt_box_scale_weight * gt_obj, 1))
-
-    txtytwth_loss = txty_loss + twth_loss
-
-    total_loss = conf_loss + cls_loss + txtytwth_loss
-
-    return conf_loss, cls_loss, txtytwth_loss, total_loss
+    return conf_loss, cls_loss, bbox_loss, total_loss
 
 
 if __name__ == "__main__":

@@ -26,11 +26,11 @@ curl -LO http://host.robots.ox.ac.uk/pascal/VOC/voc2012/VOCtrainval_11-May-2012.
 echo "Done downloading."
 
 
-## Extract data
-#echo "Extracting trainval ..."
-#tar -xvf VOCtrainval_11-May-2012.tar
-#echo "removing tar ..."
-#rm VOCtrainval_11-May-2012.tar
+# Extract data
+echo "Extracting trainval ..."
+tar -xvf VOCtrainval_11-May-2012.tar
+echo "removing tar ..."
+rm VOCtrainval_11-May-2012.tar
 
 end=`date +%s`
 runtime=$((end-start))

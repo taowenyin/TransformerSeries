@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
 from torch.autograd import Variable
-from ..data import VOCDetection
+from data import VOCDetection
 import sys
 import os
 import time
@@ -42,7 +42,6 @@ class VOCAPIEvaluator():
 
         # dataset
         self.dataset = VOCDetection(root=data_root, 
-                                    img_size=img_size[0],
                                     image_sets=[('2007', set_type)],
                                     transform=transform
                                     )
