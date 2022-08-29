@@ -63,7 +63,6 @@ class TransformerEncoder(nn.Module):
 
     def __init__(self, encoder_layer, num_layers, norm=None):
         super().__init__()
-        # 把编码层复制num_layers层
         self.layers = _get_clones(encoder_layer, num_layers)
         self.num_layers = num_layers
         self.norm = norm
@@ -74,11 +73,7 @@ class TransformerEncoder(nn.Module):
                 pos: Optional[Tensor] = None):
         output = src
 
-        # 内部包括6个编码器，顺序运行
-        # src是图像特征输入，shape=[HW, b, 256]
         for layer in self.layers:
-            # 每个编码器都需要加入pos位置编码
-            # 第一个编码器输入来自图像特征，后面的编码器输入来自前一个编码器输出
             output = layer(output, src_mask=mask,
                            src_key_padding_mask=src_key_padding_mask, pos=pos)
 
@@ -89,6 +84,7 @@ class TransformerEncoder(nn.Module):
 
 
 class TransformerDecoder(nn.Module):
+
     def __init__(self, decoder_layer, num_layers, norm=None, return_intermediate=False):
         super().__init__()
         self.layers = _get_clones(decoder_layer, num_layers)
@@ -103,17 +99,6 @@ class TransformerDecoder(nn.Module):
                 memory_key_padding_mask: Optional[Tensor] = None,
                 pos: Optional[Tensor] = None,
                 query_pos: Optional[Tensor] = None):
-        """
-        :param tgt: Decoder的输入
-        :param memory: Encoder的输出
-        :param tgt_mask:
-        :param memory_mask:
-        :param tgt_key_padding_mask:
-        :param memory_key_padding_mask:
-        :param pos: Encoder的位置编码的输出
-        :param query_pos: Object Queries
-        :return:
-        """
         output = tgt
 
         intermediate = []
@@ -140,17 +125,9 @@ class TransformerDecoder(nn.Module):
 
 
 class TransformerEncoderLayer(nn.Module):
+
     def __init__(self, d_model, nhead, dim_feedforward=2048, dropout=0.1,
                  activation="relu", normalize_before=False):
-        """
-        编码器的网络层
-        :param d_model: 模型的输出维度
-        :param nhead: Head的数量
-        :param dim_feedforward: FFN的中间层维度
-        :param dropout:
-        :param activation: 激活函数类型
-        :param normalize_before:
-        """
         super().__init__()
         self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout)
         # Implementation of Feedforward model
@@ -166,7 +143,6 @@ class TransformerEncoderLayer(nn.Module):
         self.activation = _get_activation_fn(activation)
         self.normalize_before = normalize_before
 
-    # 得到x+pos
     def with_pos_embed(self, tensor, pos: Optional[Tensor]):
         return tensor if pos is None else tensor + pos
 
@@ -175,20 +151,13 @@ class TransformerEncoderLayer(nn.Module):
                      src_mask: Optional[Tensor] = None,
                      src_key_padding_mask: Optional[Tensor] = None,
                      pos: Optional[Tensor] = None):
-        # 按照结构图，Q、K包含Pos，而V不包含Pos，所以Q、K相同，V不相同，与标准Transform不同
         q = k = self.with_pos_embed(src, pos)
-        # 经过编码器的MultiheadAttention
         src2 = self.self_attn(q, k, value=src, attn_mask=src_mask,
                               key_padding_mask=src_key_padding_mask)[0]
-        # 残差1
         src = src + self.dropout1(src2)
-        # 归一化1
         src = self.norm1(src)
-        # 经过2层FFN
         src2 = self.linear2(self.dropout(self.activation(self.linear1(src))))
-        # 残差2
         src = src + self.dropout2(src2)
-        # 归一化2
         src = self.norm2(src)
         return src
 
@@ -210,7 +179,6 @@ class TransformerEncoderLayer(nn.Module):
                 src_mask: Optional[Tensor] = None,
                 src_key_padding_mask: Optional[Tensor] = None,
                 pos: Optional[Tensor] = None):
-        # 是否在输入前要归一化
         if self.normalize_before:
             return self.forward_pre(src, src_mask, src_key_padding_mask, pos)
         return self.forward_post(src, src_mask, src_key_padding_mask, pos)
@@ -248,33 +216,19 @@ class TransformerDecoderLayer(nn.Module):
                      memory_key_padding_mask: Optional[Tensor] = None,
                      pos: Optional[Tensor] = None,
                      query_pos: Optional[Tensor] = None):
-        # Q、K的输入是object queries(query_pos) + Decoder的输入(tgt)，shape都是(100, B, 256)
-        # value的输入是Decoder的输入(tgt), shape = (100, B, 256)
         q = k = self.with_pos_embed(tgt, query_pos)
-        # 经过Decoder的第一个MultiheadAttention
         tgt2 = self.self_attn(q, k, value=tgt, attn_mask=tgt_mask,
                               key_padding_mask=tgt_key_padding_mask)[0]
-        # 计算第一个残差
         tgt = tgt + self.dropout1(tgt2)
-        # 计算第一个归一化
         tgt = self.norm1(tgt)
-        # 经过Decoder的第二个MultiheadAttention
-        # Q是上一个attention的输出(tgt) + object queries(query_pos)
-        # K是Encoder的位置编码(pos) + Encoder的输出(memory)
-        # V是Encoder的输出(memory)
         tgt2 = self.multihead_attn(query=self.with_pos_embed(tgt, query_pos),
                                    key=self.with_pos_embed(memory, pos),
                                    value=memory, attn_mask=memory_mask,
                                    key_padding_mask=memory_key_padding_mask)[0]
-        # 计算第二个残差
         tgt = tgt + self.dropout2(tgt2)
-        # 计算第二个归一化
         tgt = self.norm2(tgt)
-        # 计算FFN
         tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt))))
-        # 计算第三个残差
         tgt = tgt + self.dropout3(tgt2)
-        # 计算第三个归一化
         tgt = self.norm3(tgt)
         return tgt
 

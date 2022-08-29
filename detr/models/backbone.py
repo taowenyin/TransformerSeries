@@ -11,7 +11,7 @@ from torch import nn
 from torchvision.models._utils import IntermediateLayerGetter
 from typing import Dict, List
 
-from detr.util.misc import NestedTensor, is_main_process
+from util.misc import NestedTensor, is_main_process
 
 from .position_encoding import build_position_encoding
 
@@ -66,19 +66,15 @@ class BackboneBase(nn.Module):
             return_layers = {"layer1": "0", "layer2": "1", "layer3": "2", "layer4": "3"}
         else:
             return_layers = {'layer4': "0"}
-
-        # 把Backbone中间基层作为主干网
         self.body = IntermediateLayerGetter(backbone, return_layers=return_layers)
         self.num_channels = num_channels
 
     def forward(self, tensor_list: NestedTensor):
-        # NestedTensor中进过Padding的x输入到主干网中得到输出
         xs = self.body(tensor_list.tensors)
         out: Dict[str, NestedTensor] = {}
         for name, x in xs.items():
             m = tensor_list.mask
             assert m is not None
-            # 把Mask通过插值法扩展为与x相同的H、W
             mask = F.interpolate(m[None].float(), size=x.shape[-2:]).to(torch.bool)[0]
             out[name] = NestedTensor(x, mask)
         return out
@@ -99,11 +95,6 @@ class Backbone(BackboneBase):
 
 class Joiner(nn.Sequential):
     def __init__(self, backbone, position_embedding):
-        """
-        构建BackBone+位置编码的模型
-        :param backbone:
-        :param position_embedding:
-        """
         super().__init__(backbone, position_embedding)
 
     def forward(self, tensor_list: NestedTensor):
@@ -119,19 +110,10 @@ class Joiner(nn.Sequential):
 
 
 def build_backbone(args):
-    """
-    返回模型
-    :param args:
-    :return:
-    """
-    # position_embedding是个nn.module
     position_embedding = build_position_encoding(args)
     train_backbone = args.lr_backbone > 0
     return_interm_layers = args.masks
-    # backbone是个nn.module
     backbone = Backbone(args.backbone, train_backbone, return_interm_layers, args.dilation)
-    # 使用nn.Sequential连接两个模型
     model = Joiner(backbone, position_embedding)
     model.num_channels = backbone.num_channels
-
     return model
