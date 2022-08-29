@@ -47,13 +47,19 @@ class Transformer(nn.Module):
     def forward(self, src, mask, query_embed, pos_embed):
         # flatten NxCxHxW to HWxNxC
         bs, c, h, w = src.shape
+        # 输入图像的形状变化，(B, C, H, W) -> (B, C, HW) -> (HW, B, C)
         src = src.flatten(2).permute(2, 0, 1)
+        # PositionalEncoding的形状变化，(BS, 256, H, W) -> (HW, BS, 256)
         pos_embed = pos_embed.flatten(2).permute(2, 0, 1)
+        # Object Query (100, 256) -> (100, 1, 256) -> 复制(100, BS, 256)
         query_embed = query_embed.unsqueeze(1).repeat(1, bs, 1)
         mask = mask.flatten(1)
-
-        tgt = torch.zeros_like(query_embed)
+        # 执行编码器
         memory = self.encoder(src, src_key_padding_mask=mask, pos=pos_embed)
+
+        # 默认初始化为0，形状和query_embed相同，(100, BS, 256)，可以认为是解码器的输出
+        tgt = torch.zeros_like(query_embed)
+        # 执行解码器
         hs = self.decoder(tgt, memory, memory_key_padding_mask=mask,
                           pos=pos_embed, query_pos=query_embed)
         return hs.transpose(1, 2), memory.permute(1, 2, 0).view(bs, c, h, w)
@@ -151,9 +157,12 @@ class TransformerEncoderLayer(nn.Module):
                      src_mask: Optional[Tensor] = None,
                      src_key_padding_mask: Optional[Tensor] = None,
                      pos: Optional[Tensor] = None):
+        # 把BackBone出来的数据与位置编码相加，得到Q、K，并且每一层Encode都要加PE
         q = k = self.with_pos_embed(src, pos)
+        # 带PE的FM为Q、K，不带PE的为V，然后计算Self-Attention
         src2 = self.self_attn(q, k, value=src, attn_mask=src_mask,
                               key_padding_mask=src_key_padding_mask)[0]
+        # 按照模型流程进行
         src = src + self.dropout1(src2)
         src = self.norm1(src)
         src2 = self.linear2(self.dropout(self.activation(self.linear1(src))))
@@ -216,15 +225,22 @@ class TransformerDecoderLayer(nn.Module):
                      memory_key_padding_mask: Optional[Tensor] = None,
                      pos: Optional[Tensor] = None,
                      query_pos: Optional[Tensor] = None):
+        # 把解码器输出的数据与Object Query相加，得到Q、K，并且每一层Decode都要加Object Query
         q = k = self.with_pos_embed(tgt, query_pos)
+        # 带Object Query的解码器输出为Q、K，不带PE的为V，然后计算Self-Attention
         tgt2 = self.self_attn(q, k, value=tgt, attn_mask=tgt_mask,
                               key_padding_mask=tgt_key_padding_mask)[0]
         tgt = tgt + self.dropout1(tgt2)
         tgt = self.norm1(tgt)
+        # 计算Cross-Attention
+        # Q是解码器输出+Object Query
+        # K是编码器输出+PE
+        # V是编码器输出
         tgt2 = self.multihead_attn(query=self.with_pos_embed(tgt, query_pos),
                                    key=self.with_pos_embed(memory, pos),
                                    value=memory, attn_mask=memory_mask,
                                    key_padding_mask=memory_key_padding_mask)[0]
+        # 按照模型流程进行
         tgt = tgt + self.dropout2(tgt2)
         tgt = self.norm2(tgt)
         tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt))))

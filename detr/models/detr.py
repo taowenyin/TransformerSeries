@@ -58,6 +58,8 @@ class DETR(nn.Module):
         """
         if isinstance(samples, (list, torch.Tensor)):
             samples = nested_tensor_from_tensor_list(samples)
+
+        # 通过BackBone得到FeatureMap和PositionalEncoding
         features, pos = self.backbone(samples)
 
         src, mask = features[-1].decompose()
