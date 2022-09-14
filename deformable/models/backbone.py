@@ -90,6 +90,11 @@ class BackboneBase(nn.Module):
             assert m is not None
             mask = F.interpolate(m[None].float(), size=x.shape[-2:]).to(torch.bool)[0]
             out[name] = NestedTensor(x, mask)
+
+        # 多尺度
+        # [B, 512, H/8, W/8]
+        # [B, 1024, H/16, W/16]
+        # [B, 2048, H/32, W/32]
         return out
 
 

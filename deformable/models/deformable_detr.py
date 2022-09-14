@@ -134,11 +134,17 @@ class DeformableDETR(nn.Module):
         masks = []
         for l, feat in enumerate(features):
             src, mask = feat.decompose()
+            # 把多尺度的C全部改为256
+            # 1 [B, 512, H/8, W/8] -> [B, 256, H/8, W/8]
+            # 2 [B, 1024, H/16, W/16] -> [B, 256, H/16, W/16]
+            # 3 [B, 2048, H/32, W/32] -> [B, 256, H/32, W/32]
             srcs.append(self.input_proj[l](src))
             masks.append(mask)
             assert mask is not None
         if self.num_feature_levels > len(srcs):
             _len_srcs = len(srcs)
+            # 把最后的Level再求1/2并且通道数依然为256
+            # 4 [B, 256, H/64, W/64]
             for l in range(_len_srcs, self.num_feature_levels):
                 if l == _len_srcs:
                     src = self.input_proj[l](features[-1].tensors)
@@ -147,12 +153,17 @@ class DeformableDETR(nn.Module):
                 m = samples.mask
                 mask = F.interpolate(m[None].float(), size=src.shape[-2:]).to(torch.bool)[0]
                 pos_l = self.backbone[1](NestedTensor(src, mask)).to(src.dtype)
+                # 1 [B, 256, H/8, W/8]
+                # 2 [B, 256, H/16, W/16]
+                # 3 [B, 256, H/32, W/32]
+                # 4 [B, 256, H/64, W/64]
                 srcs.append(src)
                 masks.append(mask)
                 pos.append(pos_l)
 
         query_embeds = None
         if not self.two_stage:
+            # 不是2阶段的模型才需要使用Object Query
             query_embeds = self.query_embed.weight
         hs, init_reference, inter_references, enc_outputs_class, enc_outputs_coord_unact = self.transformer(srcs, masks, pos, query_embeds)
 
