@@ -55,10 +55,10 @@ def box_cxcywh_to_xyxy(x):
     return torch.stack(b, dim=1)
 
 
-def rescale_bboxes(out_bbox, size):
+def rescale_bboxes(out_bbox, size, device):
     img_w, img_h = size
     b = box_cxcywh_to_xyxy(out_bbox)
-    b = b * torch.tensor([img_w, img_h, img_w, img_h], dtype=torch.float32)
+    b = b * torch.tensor([img_w, img_h, img_w, img_h], dtype=torch.float32, device=device)
     return b
 
 
@@ -82,7 +82,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser('Deformable DETR training and evaluation script', parents=[get_args_parser()])
     args = parser.parse_args()
 
+    device = torch.device(args.device)
+
     model, criterion, postprocessors = build_model(args)
+    model.to(device)
 
     checkpoint = torch.load(args.resume, map_location='cpu')
     model.load_state_dict(checkpoint['model'])
@@ -93,7 +96,7 @@ if __name__ == '__main__':
     im = Image.open(requests.get(url, stream=True).raw)
 
     # mean-std normalize the input image (batch-size: 1)
-    img = transform(im).unsqueeze(0)
+    img = transform(im).unsqueeze(0).to(device)
 
     # propagate through the model
     outputs = model(img)
@@ -103,6 +106,6 @@ if __name__ == '__main__':
     keep = probas.max(-1).values > 0.9
 
     # convert boxes from [0; 1] to image scales
-    bboxes_scaled = rescale_bboxes(outputs['pred_boxes'][0, keep], im.size)
+    bboxes_scaled = rescale_bboxes(outputs['pred_boxes'][0, keep], im.size, device)
 
     plot_results(im, probas[keep], bboxes_scaled)
