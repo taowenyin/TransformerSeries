@@ -38,12 +38,17 @@ class MSDeformAttnFunction(Function):
         return grad_value, None, None, grad_sampling_loc, grad_attn_weight, None
 
 
+# 拿到Sampling Location之后需要做Aggragete
 def ms_deform_attn_core_pytorch(value, value_spatial_shapes, sampling_locations, attention_weights):
     # for debug and test only,
     # need to use cuda version instead
+    # (B, HW, Head, C)
     N_, S_, M_, D_ = value.shape
+    # (B, HW, Head, L, P, 2)
     _, Lq_, M_, L_, P_, _ = sampling_locations.shape
+    # 将Value按Leve切开
     value_list = value.split([H_ * W_ for H_, W_ in value_spatial_shapes], dim=1)
+    # 根据location得到grid，从0~1变为-1~1之间
     sampling_grids = 2 * sampling_locations - 1
     sampling_value_list = []
     for lid_, (H_, W_) in enumerate(value_spatial_shapes):
@@ -57,5 +62,6 @@ def ms_deform_attn_core_pytorch(value, value_spatial_shapes, sampling_locations,
         sampling_value_list.append(sampling_value_l_)
     # (N_, Lq_, M_, L_, P_) -> (N_, M_, Lq_, L_, P_) -> (N_, M_, 1, Lq_, L_*P_)
     attention_weights = attention_weights.transpose(1, 2).reshape(N_*M_, 1, Lq_, L_*P_)
+    # Attention Map * Value
     output = (torch.stack(sampling_value_list, dim=-2).flatten(-2) * attention_weights).sum(-1).view(N_, M_*D_, Lq_)
     return output.transpose(1, 2).contiguous()

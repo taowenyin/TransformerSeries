@@ -91,16 +91,23 @@ class MSDeformAttn(nn.Module):
         N, Len_in, _ = input_flatten.shape
         assert (input_spatial_shapes[:, 0] * input_spatial_shapes[:, 1]).sum() == Len_in
 
+        # 得不到V，(B, HW, C) -> (B, HW, C)
         value = self.value_proj(input_flatten)
         if input_padding_mask is not None:
             value = value.masked_fill(input_padding_mask[..., None], float(0))
+        # 调整V的维度，把单头变多头，(B, HW, C) -> (B, HW, Head, C/Head)
         value = value.view(N, Len_in, self.n_heads, self.d_model // self.n_heads)
+
+        # 获取偏移 (B, HW, C) -> (B, HW, Head*L*P*2) -> (B, HW, Head, L, P, 2)
         sampling_offsets = self.sampling_offsets(query).view(N, Len_q, self.n_heads, self.n_levels, self.n_points, 2)
+        # 得到Attention Map(B, HW, C) -> (B, HW, Head * L * P) -> (B, HW, Head, L*P)
         attention_weights = self.attention_weights(query).view(N, Len_q, self.n_heads, self.n_levels * self.n_points)
+        # (B, HW, Head, L*P) -> (B, HW, Head, L, P)
         attention_weights = F.softmax(attention_weights, -1).view(N, Len_q, self.n_heads, self.n_levels, self.n_points)
         # N, Len_q, n_heads, n_levels, n_points, 2
         if reference_points.shape[-1] == 2:
             offset_normalizer = torch.stack([input_spatial_shapes[..., 1], input_spatial_shapes[..., 0]], -1)
+            # 把偏移量归一化，然后与参考点相加得到采样点的位置 (B, HW, Head, L, P, 2)
             sampling_locations = reference_points[:, :, None, :, None, :] \
                                  + sampling_offsets / offset_normalizer[None, None, None, :, None, :]
         elif reference_points.shape[-1] == 4:
@@ -111,5 +118,6 @@ class MSDeformAttn(nn.Module):
                 'Last dim of reference_points must be 2 or 4, but get {} instead.'.format(reference_points.shape[-1]))
         output = MSDeformAttnFunction.apply(
             value, input_spatial_shapes, input_level_start_index, sampling_locations, attention_weights, self.im2col_step)
+        # 最后过一个Linear得到输出
         output = self.output_proj(output)
         return output

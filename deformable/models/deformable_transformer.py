@@ -176,9 +176,13 @@ class DeformableTransformer(nn.Module):
             pos_trans_out = self.pos_trans_norm(self.pos_trans(self.get_proposal_pos_embed(topk_coords_unact)))
             query_embed, tgt = torch.split(pos_trans_out, c, dim=2)
         else:
+            # query_embed (N, C) -> query_embed (N, C/2) + tgt (N, C/2)
             query_embed, tgt = torch.split(query_embed, c, dim=1)
+            # (N, C/2) -> (1, N, C/2) -> (B, N, C/2)
             query_embed = query_embed.unsqueeze(0).expand(bs, -1, -1)
+            # (N, C/2) -> (1, N, C/2) -> (B, N, C/2)
             tgt = tgt.unsqueeze(0).expand(bs, -1, -1)
+            # (B, N, C/2) -> (B, N, 2)得到0~1之间，即FM上
             reference_points = self.reference_points(query_embed).sigmoid()
             init_reference_out = reference_points
 
@@ -244,9 +248,10 @@ class DeformableTransformerEncoder(nn.Module):
     def get_reference_points(spatial_shapes, valid_ratios, device):
         reference_points_list = []
         for lvl, (H_, W_) in enumerate(spatial_shapes):
-
+            # 创建一个网格，网格中有H/W个点，并且每个点偏移0.5，即网格的中心
             ref_y, ref_x = torch.meshgrid(torch.linspace(0.5, H_ - 0.5, H_, dtype=torch.float32, device=device),
                                           torch.linspace(0.5, W_ - 0.5, W_, dtype=torch.float32, device=device))
+            # 因为存在padding，因此就需要通过实际的H/W网格数得到在真实尺寸下的归一化偏移量
             ref_y = ref_y.reshape(-1)[None] / (valid_ratios[:, None, lvl, 1] * H_)
             ref_x = ref_x.reshape(-1)[None] / (valid_ratios[:, None, lvl, 0] * W_)
             ref = torch.stack((ref_x, ref_y), -1)
