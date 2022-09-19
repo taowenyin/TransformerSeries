@@ -33,7 +33,7 @@ def get_args_parser():
     # about lr
     parser.add_argument('--lr', default=1e-4, type=float, 
                         help='learning rate')
-    parser.add_argument('--lr_backbone', default=1e-5, type=float, 
+    parser.add_argument('--lr_backbone', default=1e-5, type=float,
                         help='learning rate for backbone')
 
     parser.add_argument('--batch_size', default=2, type=int)
@@ -45,7 +45,8 @@ def get_args_parser():
                         help='gradient clipping max norm')
 
     # Model parameters
-    parser.add_argument('--modelname', '-m', type=str, required=True, choices=['dab_detr', 'dab_deformable_detr'])
+    parser.add_argument('--modelname', '-m', default='dab_detr', type=str, required=False,
+                        choices=['dab_detr', 'dab_deformable_detr'])
     parser.add_argument('--frozen_weights', type=str, default=None,
                         help="Path to the pretrained model. If set, only the mask head will be trained")
 
@@ -136,7 +137,7 @@ def get_args_parser():
 
     # dataset parameters
     parser.add_argument('--dataset_file', default='coco')
-    parser.add_argument('--coco_path', type=str, required=True)
+    parser.add_argument('--coco_path', type=str, required=False)
     parser.add_argument('--coco_panoptic_path', type=str)
     parser.add_argument('--remove_difficult', action='store_true')
     parser.add_argument('--fix_size', action='store_true', 
@@ -148,7 +149,7 @@ def get_args_parser():
     parser.add_argument('--note', default='', help='add some notes to the experiment')
     parser.add_argument('--device', default='cuda', help='device to use for training / testing')
     parser.add_argument('--seed', default=42, type=int)
-    parser.add_argument('--resume', default='', help='resume from checkpoint')
+    parser.add_argument('--resume', default='./model_zoo/DAB_DETR/R50/checkpoint.pth', help='resume from checkpoint')
     parser.add_argument('--pretrain_model_path', help='load from other checkpoint')
     parser.add_argument('--finetune_ignore', type=str, nargs='+', 
                         help="A list of keywords to ignore when loading pretrained models.")
@@ -178,6 +179,7 @@ def get_args_parser():
 
 
 def build_model_main(args):
+    a = args.modelname
     if args.modelname.lower() == 'dab_detr':
         model, criterion, postprocessors = build_DABDETR(args)
     elif args.modelname.lower() == 'dab_deformable_detr':
