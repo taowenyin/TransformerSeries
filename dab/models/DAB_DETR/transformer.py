@@ -221,8 +221,10 @@ class TransformerDecoder(nn.Module):
         # import ipdb; ipdb.set_trace()        
 
         for layer_id, layer in enumerate(self.layers):
+            # 取出anchor的中心Aq
             obj_center = reference_points[..., :self.query_dim]  # [num_queries, batch_size, 2]
             # get sine embedding for the query vector
+            # 执行Pq = MLP(PE(obj_center))，将中心点转成256维度的嵌入向量
             query_sine_embed = gen_sineembed_for_position(obj_center)
             query_pos = self.ref_point_head(query_sine_embed)
 
@@ -231,19 +233,25 @@ class TransformerDecoder(nn.Module):
                 if layer_id == 0:
                     pos_transformation = 1
                 else:
+                    # Decoder Embedding经过MLP得到用于中心的变换
                     pos_transformation = self.query_scale(output)
             else:
                 pos_transformation = self.query_scale.weight[layer_id]
 
             # apply transformation
+            # 得到Pq
             query_sine_embed = query_sine_embed[..., :self.d_model] * pos_transformation
 
             # modulated HW attentions
             if self.modulate_hw_attn:
+                # Cq经过MLP和sigmoid得到Wq,ref和Hq，ref
                 refHW_cond = self.ref_anchor_head(output).sigmoid()  # nq, bs, 2
+                # 在计算Pk和Pq的权重相似度时引入了一个(1/w,1/h)的一个尺度变换操作
                 query_sine_embed[..., self.d_model // 2:] *= (refHW_cond[..., 0] / obj_center[..., 2]).unsqueeze(-1)
                 query_sine_embed[..., :self.d_model // 2] *= (refHW_cond[..., 1] / obj_center[..., 3]).unsqueeze(-1)
 
+            # 执行当前层的decoder layer
+            # pos表示位置编码，query_pos表示Object Query的中心点编码，query_sine_embed表示Object Query的WH编码
             output = layer(output, memory, tgt_mask=tgt_mask,
                            memory_mask=memory_mask,
                            tgt_key_padding_mask=tgt_key_padding_mask,
@@ -254,19 +262,26 @@ class TransformerDecoder(nn.Module):
             # iter update
             if self.bbox_embed is not None:
                 if self.bbox_embed_diff_each_layer:
+                    # 在Cq基础上预测tmp：即bbox的误差量:[delta_x, delta_y, delta_w, delta_h]
                     tmp = self.bbox_embed[layer_id](output)
                 else:
                     tmp = self.bbox_embed(output)
                 # import ipdb; ipdb.set_trace()
+                # 更新bbox
                 tmp[..., :self.query_dim] += inverse_sigmoid(reference_points)
+                # 经过sigmoid得到新的bbox
                 new_reference_points = tmp[..., :self.query_dim].sigmoid()
                 if layer_id != self.num_layers - 1:
+                    # 存储每层的参考点
                     ref_points.append(new_reference_points)
+                # 更新参考点，为下一层decoder layer使用
                 reference_points = new_reference_points.detach()
 
+            # 保存中间的Cq
             if self.return_intermediate:
                 intermediate.append(self.norm(output))
 
+        # 循环结束，按要求返回所需的值
         if self.norm is not None:
             output = self.norm(output)
             if self.return_intermediate:
